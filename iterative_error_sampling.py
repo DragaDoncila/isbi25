@@ -83,9 +83,6 @@ if __name__ == '__main__':
     all_ds = all_ds[all_ds.ds_name == 'Fluo-C3DL-MDA231_01']
     ds_names = all_ds.ds_name.unique()
     for ds_name in ds_names:
-        resolved_since_last_eval = 0
-        count_edges_presented = 0
-
         ds, seq = ds_name.split('_')
         out_ds = os.path.join(out_root, ds)
         out_res = os.path.join(out_ds, f'{seq}_RES')
@@ -102,7 +99,7 @@ if __name__ == '__main__':
             'ds_name',
             'u',
             'v',
-            'distance',
+            'feature_distance',
             'chosen_neighbour_rank',
             'prop_diff',
             'sensitivity_diff',
@@ -110,7 +107,7 @@ if __name__ == '__main__':
             'solution_incorrect',
             'error_type'
         ]]
-        ds_edges = ds_edges.sort_values(by=feature_of_interest, ascending=ascending)
+        # ds_edges = ds_edges.sort_values(by=feature_of_interest, ascending=ascending)
         total_errors = ds_edges['solution_incorrect'].sum()
         total_edges = len(ds_edges)
 
@@ -159,7 +156,18 @@ if __name__ == '__main__':
         ds_edges['CCA'] = -1.0
         ds_edges['BC(0)'] = -1.0
 
-        for row in ds_edges.itertuples():
+        ds_edges['presented_rank'] = -1
+        resolved_since_last_eval = 0
+        count_edges_presented = 0
+        unpresented = set(ds_edges[ds_edges.presented_rank == -1].index)
+
+        while len(unpresented):
+            if ascending == False:
+                row_idx = ds_edges[ds_edges.presented_rank == -1][feature_of_interest].idxmax()
+            else:
+                row_idx = ds_edges[ds_edges.presented_rank == -1][feature_of_interest].idxmin()
+            row = ds_edges.loc[row_idx]
+                
             is_correct = row.solution_correct
             u = row.u
             v = row.v
@@ -179,8 +187,6 @@ if __name__ == '__main__':
                     if gt_pred in gt_to_sol:
                         sol_pred = gt_to_sol[gt_pred]
                     else:
-                        if new_node_id == 355:
-                            print('here')
                         sol_pred = add_new_vertex(gt_pred, gt_graph, new_node_id, solution_graph, n_digits, gt_path, original_seg, new_label)
                         gt_to_sol[gt_pred] = sol_pred
                         sol_to_gt[sol_pred] = gt_pred
@@ -249,14 +255,18 @@ if __name__ == '__main__':
                     resolved_since_last_eval = 0
 
                 resolved_since_last_eval += 1
-            count_edges_presented += 1
 
             # save into graph
-            ds_edges.at[row.Index, 'LNK'] = original_lnk
-            ds_edges.at[row.Index, 'BIO(0)'] = original_bio
-            ds_edges.at[row.Index, 'CT'] = original_ct
-            ds_edges.at[row.Index, 'TF'] = original_tf
-            ds_edges.at[row.Index, 'CCA'] = original_cca
-            ds_edges.at[row.Index, 'BC(0)'] = original_bc
+            ds_edges.at[row_idx, 'LNK'] = original_lnk
+            ds_edges.at[row_idx, 'BIO(0)'] = original_bio
+            ds_edges.at[row_idx, 'CT'] = original_ct
+            ds_edges.at[row_idx, 'TF'] = original_tf
+            ds_edges.at[row_idx, 'CCA'] = original_cca
+            ds_edges.at[row_idx, 'BC(0)'] = original_bc
 
+            ds_edges.at[row_idx, 'presented_rank'] = count_edges_presented
+            count_edges_presented += 1
+            unpresented = set(ds_edges[ds_edges.presented_rank == -1].index)
+        
+        ds_edges.sort_values(by='presented_rank', ascending=True, inplace=True)
         ds_edges.to_csv(out_edge_csv_path, index=False)
