@@ -38,6 +38,8 @@ for row in tqdm(ds_info.itertuples()):
     all_edges['ds_name'] = row.ds_name
     # assign "prop diff" which is absolute difference in area proportion to 1
     all_edges['prop_diff'] = abs(all_edges['chosen_neighbour_area_prop'] - 1)
+    # assign "feature distance" which is "distance" for all real edges, and otherwise, "cost"
+    all_edges['feature_distance'] = all_edges.apply(lambda edg: edg['distance'] if edg['distance'] != -1 else edg['cost'], axis=1)
     # only keep real edges and appearance/exit edges
     dfs.append(all_edges[(((all_edges.u >= 0) & (all_edges.v >= 0)) | ((all_edges.u == -2) & (all_edges.cost > 0)) | ((all_edges.v == -4) & (all_edges.cost > 0)))])
 
@@ -55,6 +57,6 @@ for row in ds_info.itertuples():
         print("No incorrect edges in solution for", ds_name)
         ds_names_no_errors.append(ds_name)
 
-with_errors = overall_df[~overall_df.ds_name.isin(ds_names_no_errors)]
+with_errors = overall_df[(~overall_df.ds_name.isin(ds_names_no_errors)) & (overall_df.flow > 0)]
 with_errors.to_csv(solution_only_path, index=False)
 
