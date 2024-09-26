@@ -1,4 +1,5 @@
 import os
+import numpy as np
 import pandas as pd
 from tracktour import load_tiff_frames
 from utils import OUT_FILE, join_pth
@@ -179,24 +180,53 @@ if __name__ == '__main__':
                 error_type = getattr(row, 'error_type', 'FP')
 
                 if error_type == 'FA':
-                    # this was an incorrect appearance, meaning 'v' must have
-                    # a real predecessor
+                    # this was an incorrect appearance, check for 'v''s
+                    # predecessor
                     gt_v = sol_to_gt[v]
-                    gt_pred = list(gt_graph.predecessors(gt_v))[0]
-                    gt_succs = list(gt_graph.successors(gt_pred))
-                    if gt_pred in gt_to_sol:
-                        sol_pred = gt_to_sol[gt_pred]
-                    else:
-                        sol_pred = add_new_vertex(gt_pred, gt_graph, new_node_id, solution_graph, n_digits, gt_path, original_seg, new_label)
-                        gt_to_sol[gt_pred] = sol_pred
-                        sol_to_gt[sol_pred] = gt_pred
-                        new_node_id += 1
-                        new_label += 1
-                    solution_graph.add_edge(sol_pred, v)
-                    # this edge belongs to two different tracks
-                    if len(gt_succs) == 1 and gt_graph.nodes[gt_pred]['segmentation_id'] != gt_graph.nodes[gt_v]['segmentation_id']:
-                        solution_graph.edges[sol_pred, v]['manual_parent_link'] = True
-                    count_errors_handled += 1
+                    # this might be a faux FA we introduced, so we still check here
+                    preds = list(gt_graph.predecessors(gt_v))
+                    if len(preds):
+                        gt_pred = preds[0]
+                        gt_succs = list(gt_graph.successors(gt_pred))
+                        if gt_pred in gt_to_sol:
+                            sol_pred = gt_to_sol[gt_pred]
+                        else:
+                            sol_pred = add_new_vertex(gt_pred, gt_graph, new_node_id, solution_graph, n_digits, gt_path, original_seg, new_label)
+                            gt_to_sol[gt_pred] = sol_pred
+                            sol_to_gt[sol_pred] = gt_pred
+                            new_node_id += 1
+                            new_label += 1
+
+                            # add implict FA edge into sol_pred
+                            new_edge_info = {
+                                'ds_name': ds_name,
+                                'u': -2,
+                                'v': sol_pred,
+                                # max value makes sure this edge is sampled next
+                                'feature_distance': np.inf,
+                                'chosen_neighbour_rank': -1,
+                                'prop_diff': 2,
+                                # min value makes sure this edge is sampled next
+                                'sensitivity_diff': 0,
+                                # we pretend this edge is definitely wrong
+                                # if it happens to be correct, it's just a no-op
+                                'solution_correct': False,
+                                'solution_incorrect': True,
+                                'error_type': 'FA',
+                                'LNK': -1,
+                                'BIO(0)': -1,
+                                'CT': -1,
+                                'TF': -1,
+                                'CCA': -1,
+                                'BC(0)': -1,
+                                'presented_rank': -1,
+                            }
+                            ds_edges = pd.concat([ds_edges, pd.DataFrame(new_edge_info, index=[ds_edges.index.max() + 1])])
+                        solution_graph.add_edge(sol_pred, v)
+                        # this edge belongs to two different tracks
+                        if len(gt_succs) == 1 and gt_graph.nodes[gt_pred]['segmentation_id'] != gt_graph.nodes[gt_v]['segmentation_id']:
+                            solution_graph.edges[sol_pred, v]['manual_parent_link'] = True
+                        count_errors_handled += 1
                 # ws, fp or fe edges
                 # may lead to removal of edges
                 # will always repair sucessor(s) of u
@@ -223,6 +253,33 @@ if __name__ == '__main__':
                             # increment information for next node to add    
                             new_label += 1
                             new_node_id += 1
+
+                            if error_type == 'FE':
+                                # add implict FE edge into sol_pred
+                                new_edge_info = {
+                                    'ds_name': ds_name,
+                                    'u': sol_dest,
+                                    'v': -4,
+                                    # max value makes sure this edge is sampled next
+                                    'feature_distance': np.inf,
+                                    'chosen_neighbour_rank': -1,
+                                    'prop_diff': 2,
+                                    # min value makes sure this edge is sampled next
+                                    'sensitivity_diff': 0,
+                                    # we pretend this edge is definitely wrong
+                                    # if it happens to be correct, it's just a no-op
+                                    'solution_correct': False,
+                                    'solution_incorrect': True,
+                                    'error_type': 'FE',
+                                    'LNK': -1,
+                                    'BIO(0)': -1,
+                                    'CT': -1,
+                                    'TF': -1,
+                                    'CCA': -1,
+                                    'BC(0)': -1,
+                                    'presented_rank': -1,
+                                }
+                                ds_edges = pd.concat([ds_edges, pd.DataFrame(new_edge_info, index=[ds_edges.index.max() + 1])])
 
                         # add correct edge
                         if not solution_graph.has_edge(u, sol_dest):
