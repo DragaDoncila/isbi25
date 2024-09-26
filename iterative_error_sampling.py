@@ -81,7 +81,6 @@ if __name__ == '__main__':
     #####################################################################################
 
     all_ds = pd.read_csv(all_ds_path)
-    all_ds = all_ds[all_ds.ds_name == 'Fluo-C3DL-MDA231_01']
     ds_names = all_ds.ds_name.unique()
     for ds_name in ds_names:
         ds, seq = ds_name.split('_')
