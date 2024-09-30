@@ -28,7 +28,7 @@ def get_remove_edges(solution_graph, u, v):
     for dest in solution_graph.successors(u):
         edge = solution_graph.edges[u, dest]
         # if this edge was added during solving, it won't have this flag
-        if edge.get('EdgeFlag.FALSE_POS', False):
+        if edge.get('EdgeFlag.FALSE_POS', False) and (u,v) not in removers:
             removers.append((u,v))
     return removers
 
@@ -76,8 +76,8 @@ if __name__ == '__main__':
     # path to csv generated using "compute_edge_sampling_dfs.py"
     all_ds_path = os.path.join(root_pth, 'solution_edges_datasets_with_FP_WS_FA_FE.csv')
     out_root = '/home/ddon0001/PhD/experiments/error_sampling_ws_fa_fe'
-    feature_of_interest = 'feature_distance'
-    ascending = False
+    feature_of_interest = 'sensitivity_diff'
+    ascending = True
     #####################################################################################
 
     all_ds = pd.read_csv(all_ds_path)
@@ -109,7 +109,6 @@ if __name__ == '__main__':
         ]]
         # ds_edges = ds_edges.sort_values(by=feature_of_interest, ascending=ascending)
         total_errors = ds_edges['solution_incorrect'].sum()
-        total_edges = len(ds_edges)
 
         # load required dataset info
         ds_root_pth = os.path.join(root_pth, ds_name)
@@ -253,32 +252,33 @@ if __name__ == '__main__':
                             new_label += 1
                             new_node_id += 1
 
-                            if error_type == 'FE':
-                                # add implict FE edge into sol_pred
-                                new_edge_info = {
-                                    'ds_name': ds_name,
-                                    'u': sol_dest,
-                                    'v': -4,
-                                    # max value makes sure this edge is sampled next
-                                    'feature_distance': np.inf,
-                                    'chosen_neighbour_rank': -1,
-                                    'prop_diff': 2,
-                                    # min value makes sure this edge is sampled next
-                                    'sensitivity_diff': 0,
-                                    # we pretend this edge is definitely wrong
-                                    # if it happens to be correct, it's just a no-op
-                                    'solution_correct': False,
-                                    'solution_incorrect': True,
-                                    'error_type': 'FE',
-                                    'LNK': -1,
-                                    'BIO(0)': -1,
-                                    'CT': -1,
-                                    'TF': -1,
-                                    'CCA': -1,
-                                    'BC(0)': -1,
-                                    'presented_rank': -1,
-                                }
-                                ds_edges = pd.concat([ds_edges, pd.DataFrame(new_edge_info, index=[ds_edges.index.max() + 1])])
+                            # add implict FE edge from sol_dest
+                            # because we've fixed incoming edge from u into sol_dest, but don't know where it's going
+                            new_edge_info = {
+                                'ds_name': ds_name,
+                                'u': sol_dest,
+                                'v': -4,
+                                # max value makes sure this edge is sampled next
+                                'feature_distance': np.inf,
+                                'chosen_neighbour_rank': -1,
+                                'prop_diff': 2,
+                                # min value makes sure this edge is sampled next
+                                'sensitivity_diff': 0,
+                                # we pretend this edge is definitely wrong
+                                # if it happens to be correct, it's just a no-op
+                                'solution_correct': False,
+                                'solution_incorrect': True,
+                                'error_type': 'FE',
+                                'LNK': -1,
+                                'BIO(0)': -1,
+                                'CT': -1,
+                                'TF': -1,
+                                'CCA': -1,
+                                'BC(0)': -1,
+                                'presented_rank': -1,
+                            }
+                            ds_edges = pd.concat([ds_edges, pd.DataFrame(new_edge_info, index=[ds_edges.index.max() + 1])])
+
 
                         # add correct edge
                         if not solution_graph.has_edge(u, sol_dest):
@@ -293,11 +293,12 @@ if __name__ == '__main__':
                 original_seg, track_df, new_label = get_ctc_output(original_seg, solution_graph, 't', 'label', loc)
                 _save_results(original_seg, track_df, out_res)
                 new_label += 1
+                resolved_since_last_eval += 1
 
                 # still had wrong edges, have big number of errors, been 10 edges since we last evaluated or we are at the end
                 if ((count_errors_handled > 0)\
                     and ((total_errors <= 20) or (resolved_since_last_eval >= 25)))\
-                    or (count_edges_presented >= total_edges - 1):
+                    or (count_edges_presented >= len(ds_edges) - 1):
                     # re-evaluate LNK and BIO
                     res_dict = evaluate_sequence(out_res, gt_path[:-4], ['LNK', 'BIO', 'CT', 'TF', 'CCA', 'BC'])
 
@@ -309,8 +310,18 @@ if __name__ == '__main__':
                     original_cca = res_dict['CCA']
                     original_bc = res_dict['BC(0)']
                     resolved_since_last_eval = 0
+            # edge was correct but we're at the last iteration
+            elif count_edges_presented >= len(ds_edges) - 1:
+                res_dict = evaluate_sequence(out_res, gt_path[:-4], ['LNK', 'BIO', 'CT', 'TF', 'CCA', 'BC'])
 
-                resolved_since_last_eval += 1
+                # overwrite original metrics
+                original_lnk = res_dict['LNK']
+                original_bio = res_dict['BIO(0)']
+                original_ct = res_dict['CT']
+                original_tf = res_dict['TF']
+                original_cca = res_dict['CCA']
+                original_bc = res_dict['BC(0)']
+
 
             # save into graph
             ds_edges.at[row_idx, 'LNK'] = original_lnk
