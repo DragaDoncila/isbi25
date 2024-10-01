@@ -11,12 +11,6 @@ from tracktour._io_util import get_ctc_output
 from tracktour.cli import _save_results
 
 
-"""TODOs:
-- introduced vertices as a result of app/disapp might lead to new app/disapp edges
-    - but that should only be introduced after resolve right?
-"""
-
-
 def get_remove_edges(solution_graph, u, v):
     # if it's a false positive OR a WS, we remove it
     # WS will get added back in later, because
@@ -67,7 +61,7 @@ if __name__ == '__main__':
     ds_summary_path = os.path.join(root_pth, 'summary.csv')
     ds_info = pd.read_csv(ds_summary_path)[['ds_name', 'seg_path', 'tra_gt_path']]
     # path to csv generated using `ctc_evaluate` command 
-    # with `--lnk --bio --ct --tf --cca --bc` flags
+    # with `--lnk --tra --det --bio --ct --tf --cca --bc` flags
     original_metrics_path = '/home/ddon0001/PhD/experiments/as_ctc/no_merges/no_merge_metrics.csv'
     original_metrics = pd.read_csv(original_metrics_path, sep=';')
 
@@ -147,6 +141,8 @@ if __name__ == '__main__':
         original_tf = ds_metrics['TF'].values[0]
         original_cca = ds_metrics['CCA'].values[0]
         original_bc = ds_metrics['BC(0)'].values[0]
+        original_tra = ds_metrics['TRA'].values[0]
+        original_det = ds_metrics['DET'].values[0]
 
         ds_edges['LNK'] = -1.0
         ds_edges['BIO(0)'] = -1.0
@@ -154,6 +150,8 @@ if __name__ == '__main__':
         ds_edges['TF'] = -1.0
         ds_edges['CCA'] = -1.0
         ds_edges['BC(0)'] = -1.0
+        ds_edges['TRA'] = -1.0
+        ds_edges['DET'] = -1.0
 
         ds_edges['presented_rank'] = -1
         resolved_since_last_eval = 0
@@ -211,12 +209,14 @@ if __name__ == '__main__':
                                 'solution_correct': False,
                                 'solution_incorrect': True,
                                 'error_type': 'FA',
-                                'LNK': -1,
-                                'BIO(0)': -1,
-                                'CT': -1,
-                                'TF': -1,
-                                'CCA': -1,
-                                'BC(0)': -1,
+                                'LNK': -1.0,
+                                'BIO(0)': -1.0,
+                                'CT': -1.0,
+                                'TF': -1.0,
+                                'CCA': -1.0,
+                                'BC(0)': -1.0,
+                                'TRA': -1.0,
+                                'DET': -1.0,
                                 'presented_rank': -1,
                             }
                             ds_edges = pd.concat([ds_edges, pd.DataFrame(new_edge_info, index=[ds_edges.index.max() + 1])])
@@ -269,12 +269,14 @@ if __name__ == '__main__':
                                 'solution_correct': False,
                                 'solution_incorrect': True,
                                 'error_type': 'FE',
-                                'LNK': -1,
-                                'BIO(0)': -1,
-                                'CT': -1,
-                                'TF': -1,
-                                'CCA': -1,
-                                'BC(0)': -1,
+                                'LNK': -1.0,
+                                'BIO(0)': -1.0,
+                                'CT': -1.0,
+                                'TF': -1.0,
+                                'CCA': -1.0,
+                                'BC(0)': -1.0,
+                                'TRA': -1.0,
+                                'DET': -1.0,
                                 'presented_rank': -1,
                             }
                             ds_edges = pd.concat([ds_edges, pd.DataFrame(new_edge_info, index=[ds_edges.index.max() + 1])])
@@ -288,6 +290,49 @@ if __name__ == '__main__':
                                 solution_graph.edges[u, sol_dest]['manual_parent_link'] = True
                             # this would've been a FN edge, so we just handled another error
                             count_errors_handled += 1
+                    # we've repaired successors of u
+                    # if gt_v's predecessor is not in gt_to_sol,
+                    # we also add it here alongside its implicit FA edge
+                    if error_type == 'FP' and len(preds := list(gt_graph.predecessors((gt_v := sol_to_gt[v])))) and (gt_pred := preds[0]) not in gt_to_sol:
+                        # predecessor doesn't exist, needs adding
+                        sol_pred = add_new_vertex(gt_pred, gt_graph, new_node_id, solution_graph, n_digits, gt_path, original_seg, new_label)
+                        gt_to_sol[gt_pred] = sol_pred
+                        sol_to_gt[sol_pred] = gt_pred
+                        new_node_id += 1
+                        new_label += 1
+
+                        # add implict FA edge into sol_pred
+                        new_edge_info = {
+                            'ds_name': ds_name,
+                            'u': -2,
+                            'v': sol_pred,
+                            # max value makes sure this edge is sampled next
+                            'feature_distance': np.inf,
+                            'chosen_neighbour_rank': -1,
+                            'prop_diff': 2,
+                            # min value makes sure this edge is sampled next
+                            'sensitivity_diff': 0,
+                            # we pretend this edge is definitely wrong
+                            # if it happens to be correct, it's just a no-op
+                            'solution_correct': False,
+                            'solution_incorrect': True,
+                            'error_type': 'FA',
+                            'LNK': -1.0,
+                            'BIO(0)': -1.0,
+                            'CT': -1.0,
+                            'TF': -1.0,
+                            'CCA': -1.0,
+                            'BC(0)': -1.0,
+                            'TRA': -1.0,
+                            'DET': -1.0,
+                            'presented_rank': -1,
+                        }
+                        ds_edges = pd.concat([ds_edges, pd.DataFrame(new_edge_info, index=[ds_edges.index.max() + 1])])
+                        solution_graph.add_edge(sol_pred, v)
+                        # this edge belongs to two different tracks
+                        if len(preds) == 1 and gt_graph.nodes[gt_pred]['segmentation_id'] != gt_graph.nodes[gt_v]['segmentation_id']:
+                            solution_graph.edges[sol_pred, v]['manual_parent_link'] = True
+                        count_errors_handled += 1
 
                 # save CTC output, get new new_label based on actual segmentation
                 original_seg, track_df, new_label = get_ctc_output(original_seg, solution_graph, 't', 'label', loc)
@@ -300,7 +345,7 @@ if __name__ == '__main__':
                     and ((total_errors <= 20) or (resolved_since_last_eval >= 25)))\
                     or (count_edges_presented >= len(ds_edges) - 1):
                     # re-evaluate LNK and BIO
-                    res_dict = evaluate_sequence(out_res, gt_path[:-4], ['LNK', 'BIO', 'CT', 'TF', 'CCA', 'BC'])
+                    res_dict = evaluate_sequence(out_res, gt_path[:-4], ['DET', 'TRA', 'LNK', 'BIO', 'CT', 'TF', 'CCA', 'BC'])
 
                     # overwrite original metrics
                     original_lnk = res_dict['LNK']
@@ -309,10 +354,12 @@ if __name__ == '__main__':
                     original_tf = res_dict['TF']
                     original_cca = res_dict['CCA']
                     original_bc = res_dict['BC(0)']
+                    original_tra = res_dict['TRA']
+                    original_det = res_dict['DET']
                     resolved_since_last_eval = 0
             # edge was correct but we're at the last iteration
             elif count_edges_presented >= len(ds_edges) - 1:
-                res_dict = evaluate_sequence(out_res, gt_path[:-4], ['LNK', 'BIO', 'CT', 'TF', 'CCA', 'BC'])
+                res_dict = evaluate_sequence(out_res, gt_path[:-4], ['DET', 'TRA', 'LNK', 'BIO', 'CT', 'TF', 'CCA', 'BC'])
 
                 # overwrite original metrics
                 original_lnk = res_dict['LNK']
@@ -321,6 +368,8 @@ if __name__ == '__main__':
                 original_tf = res_dict['TF']
                 original_cca = res_dict['CCA']
                 original_bc = res_dict['BC(0)']
+                original_tra = res_dict['TRA']
+                original_det = res_dict['DET']
 
 
             # save into graph
@@ -330,6 +379,8 @@ if __name__ == '__main__':
             ds_edges.at[row_idx, 'TF'] = original_tf
             ds_edges.at[row_idx, 'CCA'] = original_cca
             ds_edges.at[row_idx, 'BC(0)'] = original_bc
+            ds_edges.at[row_idx, 'TRA'] = original_tra
+            ds_edges.at[row_idx, 'DET'] = original_det
 
             ds_edges.at[row_idx, 'presented_rank'] = count_edges_presented
             count_edges_presented += 1
