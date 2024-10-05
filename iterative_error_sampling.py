@@ -75,6 +75,7 @@ if __name__ == '__main__':
     #####################################################################################
 
     all_ds = pd.read_csv(all_ds_path)
+    all_ds = all_ds[all_ds.ds_name == 'BF-C2DL-HSC_02']
     ds_names = all_ds.ds_name.unique()
     for ds_name in ds_names:
         ds, seq = ds_name.split('_')
@@ -238,6 +239,7 @@ if __name__ == '__main__':
 
                     # get correct destinations for u from gt
                     gt_u = sol_to_gt[u]
+
                     dests = list(gt_graph.successors(gt_u))
                     for dest in dests:
                         # destination exists, we just need to swap the edges
@@ -329,8 +331,17 @@ if __name__ == '__main__':
                         }
                         ds_edges = pd.concat([ds_edges, pd.DataFrame(new_edge_info, index=[ds_edges.index.max() + 1])])
                         solution_graph.add_edge(sol_pred, v)
-                        # this edge belongs to two different tracks
-                        if len(preds) == 1 and gt_graph.nodes[gt_pred]['segmentation_id'] != gt_graph.nodes[gt_v]['segmentation_id']:
+                        # this newly introduced vertex may actually be dividing
+                        # if so, the edge (sol_pred, v) we just added is actually a wrong semantic edge
+                        # and we need to add it back to the pile
+                        gt_new_v_succs = list(gt_graph.successors(gt_pred))
+                        if len(gt_new_v_succs) > 1:
+                            new_edge_info['u'] = sol_pred
+                            new_edge_info['v'] = v
+                            new_edge_info['error_type'] = 'WS'
+                            ds_edges = pd.concat([ds_edges, pd.DataFrame(new_edge_info, index=[ds_edges.index.max() + 1])])
+                        # new vertex has just one successor, but it may be different tracks
+                        elif len(preds) == 1 and gt_graph.nodes[gt_pred]['segmentation_id'] != gt_graph.nodes[gt_v]['segmentation_id']:
                             solution_graph.edges[sol_pred, v]['manual_parent_link'] = True
                         count_errors_handled += 1
 
