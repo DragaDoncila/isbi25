@@ -75,7 +75,7 @@ if __name__ == '__main__':
     #####################################################################################
 
     all_ds = pd.read_csv(all_ds_path)
-    all_ds = all_ds[all_ds.ds_name == 'BF-C2DL-HSC_02']
+    all_ds = all_ds[all_ds.ds_name == 'PhC-C2DL-PSC_02']
     ds_names = all_ds.ds_name.unique()
     for ds_name in ds_names:
         ds, seq = ds_name.split('_')
@@ -344,7 +344,61 @@ if __name__ == '__main__':
                         elif len(preds) == 1 and gt_graph.nodes[gt_pred]['segmentation_id'] != gt_graph.nodes[gt_v]['segmentation_id']:
                             solution_graph.edges[sol_pred, v]['manual_parent_link'] = True
                         count_errors_handled += 1
+                    # sometimes the predecessor of this vertex has more than 2 children
+                    # and in this case we can't rely on outgoing edges to bring it into focus for us
+                    # so we repair it here
+                    gt_preds = list(gt_graph.predecessors(gt_v))
+                    if len(gt_preds):
+                        gt_pred = gt_preds[0]
+                        succs_of_gt_pred = list(gt_graph.successors(gt_pred))
+                        if error_type == 'FP' and len(succs_of_gt_pred) > 2:
+                            sol_pred = gt_to_sol[gt_pred]
+                            for succ in succs_of_gt_pred:
+                                # destination exists, we just need to swap the edges
+                                if succ in gt_to_sol:
+                                    sol_dest = gt_to_sol[dest]
+                                # destination was a missing vertex
+                                else:
+                                    sol_dest = add_new_vertex(succ, gt_graph, new_node_id, solution_graph, n_digits, gt_path, original_seg, new_label)
+                                    gt_to_sol[dest] = sol_dest
+                                    sol_to_gt[sol_dest] = succ
+                                    # increment information for next node to add    
+                                    new_label += 1
+                                    new_node_id += 1
 
+                                    # add implict FE edge from sol_dest
+                                    # because we've fixed incoming edge from u into sol_dest, but don't know where it's going
+                                    new_edge_info = {
+                                        'ds_name': ds_name,
+                                        'u': sol_dest,
+                                        'v': -4,
+                                        # max value makes sure this edge is sampled next
+                                        'feature_distance': np.inf,
+                                        'chosen_neighbour_rank': -1,
+                                        'prop_diff': 2,
+                                        # min value makes sure this edge is sampled next
+                                        'sensitivity_diff': 0,
+                                        # we pretend this edge is definitely wrong
+                                        # if it happens to be correct, it's just a no-op
+                                        'solution_correct': False,
+                                        'solution_incorrect': True,
+                                        'error_type': 'FE',
+                                        'LNK': -1.0,
+                                        'BIO(0)': -1.0,
+                                        'CT': -1.0,
+                                        'TF': -1.0,
+                                        'CCA': -1.0,
+                                        'BC(0)': -1.0,
+                                        'TRA': -1.0,
+                                        'DET': -1.0,
+                                        'presented_rank': -1,
+                                    }
+                                    ds_edges = pd.concat([ds_edges, pd.DataFrame(new_edge_info, index=[ds_edges.index.max() + 1])])
+                                # add correct edge
+                                if not solution_graph.has_edge(sol_pred, sol_dest):
+                                    solution_graph.add_edge(sol_pred, sol_dest)
+                                    # this would've been a FN edge, so we just handled another error
+                                    count_errors_handled += 1
                 # save CTC output, get new new_label based on actual segmentation
                 original_seg, track_df, new_label = get_ctc_output(original_seg, solution_graph, 't', 'label', loc)
                 _save_results(original_seg, track_df, out_res)
