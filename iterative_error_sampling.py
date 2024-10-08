@@ -70,12 +70,11 @@ if __name__ == '__main__':
     # path to csv generated using "compute_edge_sampling_dfs.py"
     all_ds_path = os.path.join(root_pth, 'solution_edges_datasets_with_FP_WS_FA_FE.csv')
     out_root = '/home/ddon0001/PhD/experiments/error_sampling_ws_fa_fe'
-    feature_of_interest = 'feature_distance'
-    ascending = False
+    feature_of_interest = 'sensitivity_diff'
+    ascending = True
     #####################################################################################
 
     all_ds = pd.read_csv(all_ds_path)
-    all_ds = all_ds[all_ds.ds_name == 'PhC-C2DL-PSC_01']
     ds_names = all_ds.ds_name.unique()
     for ds_name in ds_names:
         ds, seq = ds_name.split('_')
