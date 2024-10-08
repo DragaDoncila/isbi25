@@ -70,12 +70,12 @@ if __name__ == '__main__':
     # path to csv generated using "compute_edge_sampling_dfs.py"
     all_ds_path = os.path.join(root_pth, 'solution_edges_datasets_with_FP_WS_FA_FE.csv')
     out_root = '/home/ddon0001/PhD/experiments/error_sampling_ws_fa_fe'
-    feature_of_interest = 'sensitivity_diff'
-    ascending = True
+    feature_of_interest = 'feature_distance'
+    ascending = False
     #####################################################################################
 
     all_ds = pd.read_csv(all_ds_path)
-    all_ds = all_ds[all_ds.ds_name == 'PhC-C2DL-PSC_02']
+    all_ds = all_ds[all_ds.ds_name == 'PhC-C2DL-PSC_01']
     ds_names = all_ds.ds_name.unique()
     for ds_name in ds_names:
         ds, seq = ds_name.split('_')
@@ -169,6 +169,8 @@ if __name__ == '__main__':
             is_correct = row.solution_correct
             u = row.u
             v = row.v
+            if v == 10793:
+                print("WRONG")
             if not is_correct:
                 # this tracks number of errors resolved after looking at this edge
                 # we might resolve more than one error per edge presented
@@ -344,11 +346,10 @@ if __name__ == '__main__':
                         elif len(preds) == 1 and gt_graph.nodes[gt_pred]['segmentation_id'] != gt_graph.nodes[gt_v]['segmentation_id']:
                             solution_graph.edges[sol_pred, v]['manual_parent_link'] = True
                         count_errors_handled += 1
-                    # sometimes the predecessor of this vertex has more than 2 children
+                    # sometimes the predecessor of v has more than 2 children
                     # and in this case we can't rely on outgoing edges to bring it into focus for us
                     # so we repair it here
-                    gt_preds = list(gt_graph.predecessors(gt_v))
-                    if len(gt_preds):
+                    if v >= 0 and len((gt_preds := list(gt_graph.predecessors((gt_v := sol_to_gt[v]))))):
                         gt_pred = gt_preds[0]
                         succs_of_gt_pred = list(gt_graph.successors(gt_pred))
                         if error_type == 'FP' and len(succs_of_gt_pred) > 2:
@@ -356,11 +357,11 @@ if __name__ == '__main__':
                             for succ in succs_of_gt_pred:
                                 # destination exists, we just need to swap the edges
                                 if succ in gt_to_sol:
-                                    sol_dest = gt_to_sol[dest]
+                                    sol_dest = gt_to_sol[succ]
                                 # destination was a missing vertex
                                 else:
                                     sol_dest = add_new_vertex(succ, gt_graph, new_node_id, solution_graph, n_digits, gt_path, original_seg, new_label)
-                                    gt_to_sol[dest] = sol_dest
+                                    gt_to_sol[succ] = sol_dest
                                     sol_to_gt[sol_dest] = succ
                                     # increment information for next node to add    
                                     new_label += 1
