@@ -70,8 +70,8 @@ if __name__ == '__main__':
     # path to csv generated using "compute_edge_sampling_dfs.py"
     all_ds_path = os.path.join(root_pth, 'solution_edges_datasets_with_FP_WS_FA_FE.csv')
     out_root = '/home/ddon0001/PhD/experiments/error_sampling_ws_fa_fe'
-    feature_of_interest = 'sensitivity_diff'
-    ascending = True
+    feature_of_interest = 'feature_distance'
+    ascending = False
     #####################################################################################
 
     all_ds = pd.read_csv(all_ds_path)
@@ -83,9 +83,6 @@ if __name__ == '__main__':
         out_edge_csv_path = os.path.join(out_ds, f'{seq}_edges_{feature_of_interest}.csv')
         if os.path.exists(out_edge_csv_path):
             print(f'{out_edge_csv_path} already exists, skipping...')
-            continue
-        if 'H157' in ds_name:
-            print(f'Skipping {ds_name}...')
             continue
 
         # select edges and sort by relevant feature
