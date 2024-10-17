@@ -16,14 +16,14 @@ def get_remove_edges(solution_graph, u, v):
     # WS will get added back in later, because
     # we want to make sure we mark them as 
     # manual parent links if needed
-    removers = [(u, v)]
+    removers = [(u, v)] if u >= 0 and v >= 0 else []
     # check other successors for False Positives
     # here we either have a WS edge or a node with potentially multiple FP edges
     for dest in solution_graph.successors(u):
         edge = solution_graph.edges[u, dest]
         # if this edge was added during solving, it won't have this flag
-        if edge.get('EdgeFlag.FALSE_POS', False) and (u,v) not in removers:
-            removers.append((u,v))
+        if edge.get('EdgeFlag.FALSE_POS', False) and (u,dest) not in removers:
+            removers.append((u,dest))
     return removers
 
 def get_new_node_info(dest, gt_graph):
@@ -161,12 +161,10 @@ if __name__ == '__main__':
             else:
                 row_idx = ds_edges[ds_edges.presented_rank == -1][feature_of_interest].idxmin()
             row = ds_edges.loc[row_idx]
-                
+
             is_correct = row.solution_correct
             u = row.u
             v = row.v
-            if v == 10793:
-                print("WRONG")
             if not is_correct:
                 # this tracks number of errors resolved after looking at this edge
                 # we might resolve more than one error per edge presented
@@ -230,10 +228,9 @@ if __name__ == '__main__':
                 else:
                     # check that edge is still present
                     # could've removed in prior FP iteration
-                    if solution_graph.has_edge(u, v):
-                        to_remove = get_remove_edges(solution_graph, u, v)
-                        solution_graph.remove_edges_from(to_remove)
-                        count_errors_handled += len(to_remove)
+                    to_remove = get_remove_edges(solution_graph, u, v)
+                    solution_graph.remove_edges_from(to_remove)
+                    count_errors_handled += len(to_remove)
 
                     # get correct destinations for u from gt
                     gt_u = sol_to_gt[u]
@@ -290,121 +287,45 @@ if __name__ == '__main__':
                                 solution_graph.edges[u, sol_dest]['manual_parent_link'] = True
                             # this would've been a FN edge, so we just handled another error
                             count_errors_handled += 1
-                    # we've repaired successors of u
-                    # if gt_v's predecessor is not in gt_to_sol,
-                    # we also add it here alongside its implicit FA edge
-                    if error_type == 'FP' and len(preds := list(gt_graph.predecessors((gt_v := sol_to_gt[v])))) and (gt_pred := preds[0]) not in gt_to_sol:
-                        # predecessor doesn't exist, needs adding
-                        sol_pred = add_new_vertex(gt_pred, gt_graph, new_node_id, solution_graph, n_digits, gt_path, original_seg, new_label)
-                        gt_to_sol[gt_pred] = sol_pred
-                        sol_to_gt[sol_pred] = gt_pred
-                        new_node_id += 1
-                        new_label += 1
-
-                        # add implict FA edge into sol_pred
-                        new_edge_info = {
-                            'ds_name': ds_name,
-                            'u': -2,
-                            'v': sol_pred,
-                            # max value makes sure this edge is sampled next
-                            'feature_distance': np.inf,
-                            'chosen_neighbour_rank': -1,
-                            'prop_diff': 2,
-                            # min value makes sure this edge is sampled next
-                            'sensitivity_diff': 0,
-                            # we pretend this edge is definitely wrong
-                            # if it happens to be correct, it's just a no-op
-                            'solution_correct': False,
-                            'solution_incorrect': True,
-                            'error_type': 'FA',
-                            'LNK': -1.0,
-                            'BIO(0)': -1.0,
-                            'CT': -1.0,
-                            'TF': -1.0,
-                            'CCA': -1.0,
-                            'BC(0)': -1.0,
-                            'TRA': -1.0,
-                            'DET': -1.0,
-                            'presented_rank': -1,
-                        }
-                        ds_edges = pd.concat([ds_edges, pd.DataFrame(new_edge_info, index=[ds_edges.index.max() + 1])])
-                        solution_graph.add_edge(sol_pred, v)
-                        # this newly introduced vertex may actually be dividing
-                        # if so, the edge (sol_pred, v) we just added is actually a wrong semantic edge
-                        # and we need to add it back to the pile
-                        gt_new_v_succs = list(gt_graph.successors(gt_pred))
-                        if len(gt_new_v_succs) > 1:
-                            new_edge_info['u'] = sol_pred
-                            new_edge_info['v'] = v
-                            new_edge_info['error_type'] = 'WS'
+                    # now that we've repaired successors of u, some prior successors may no longer 
+                    # have any incoming edges, and these need FA edges added
+                    for _, removed_v in to_remove:
+                        if solution_graph.in_degree(removed_v) == 0:
+                            new_edge_info = {
+                                'ds_name': ds_name,
+                                'u': -2,
+                                'v': removed_v,
+                                # max value makes sure this edge is sampled next
+                                'feature_distance': np.inf,
+                                'chosen_neighbour_rank': -1,
+                                'prop_diff': 2,
+                                # min value makes sure this edge is sampled next
+                                'sensitivity_diff': 0,
+                                # we pretend this edge is definitely wrong
+                                # if it happens to be correct, it's just a no-op
+                                'solution_correct': False,
+                                'solution_incorrect': True,
+                                'error_type': 'FA',
+                                'LNK': -1.0,
+                                'BIO(0)': -1.0,
+                                'CT': -1.0,
+                                'TF': -1.0,
+                                'CCA': -1.0,
+                                'BC(0)': -1.0,
+                                'TRA': -1.0,
+                                'DET': -1.0,
+                                'presented_rank': -1,
+                            }
                             ds_edges = pd.concat([ds_edges, pd.DataFrame(new_edge_info, index=[ds_edges.index.max() + 1])])
-                        # new vertex has just one successor, but it may be different tracks
-                        elif len(preds) == 1 and gt_graph.nodes[gt_pred]['segmentation_id'] != gt_graph.nodes[gt_v]['segmentation_id']:
-                            solution_graph.edges[sol_pred, v]['manual_parent_link'] = True
-                        count_errors_handled += 1
-                    # sometimes the predecessor of v has more than 2 children
-                    # and in this case we can't rely on outgoing edges to bring it into focus for us
-                    # so we repair it here
-                    if v >= 0 and len((gt_preds := list(gt_graph.predecessors((gt_v := sol_to_gt[v]))))):
-                        gt_pred = gt_preds[0]
-                        succs_of_gt_pred = list(gt_graph.successors(gt_pred))
-                        if error_type == 'FP' and len(succs_of_gt_pred) > 2:
-                            sol_pred = gt_to_sol[gt_pred]
-                            for succ in succs_of_gt_pred:
-                                # destination exists, we just need to swap the edges
-                                if succ in gt_to_sol:
-                                    sol_dest = gt_to_sol[succ]
-                                # destination was a missing vertex
-                                else:
-                                    sol_dest = add_new_vertex(succ, gt_graph, new_node_id, solution_graph, n_digits, gt_path, original_seg, new_label)
-                                    gt_to_sol[succ] = sol_dest
-                                    sol_to_gt[sol_dest] = succ
-                                    # increment information for next node to add    
-                                    new_label += 1
-                                    new_node_id += 1
 
-                                    # add implict FE edge from sol_dest
-                                    # because we've fixed incoming edge from u into sol_dest, but don't know where it's going
-                                    new_edge_info = {
-                                        'ds_name': ds_name,
-                                        'u': sol_dest,
-                                        'v': -4,
-                                        # max value makes sure this edge is sampled next
-                                        'feature_distance': np.inf,
-                                        'chosen_neighbour_rank': -1,
-                                        'prop_diff': 2,
-                                        # min value makes sure this edge is sampled next
-                                        'sensitivity_diff': 0,
-                                        # we pretend this edge is definitely wrong
-                                        # if it happens to be correct, it's just a no-op
-                                        'solution_correct': False,
-                                        'solution_incorrect': True,
-                                        'error_type': 'FE',
-                                        'LNK': -1.0,
-                                        'BIO(0)': -1.0,
-                                        'CT': -1.0,
-                                        'TF': -1.0,
-                                        'CCA': -1.0,
-                                        'BC(0)': -1.0,
-                                        'TRA': -1.0,
-                                        'DET': -1.0,
-                                        'presented_rank': -1,
-                                    }
-                                    ds_edges = pd.concat([ds_edges, pd.DataFrame(new_edge_info, index=[ds_edges.index.max() + 1])])
-                                # add correct edge
-                                if not solution_graph.has_edge(sol_pred, sol_dest):
-                                    solution_graph.add_edge(sol_pred, sol_dest)
-                                    # this would've been a FN edge, so we just handled another error
-                                    count_errors_handled += 1
                 # save CTC output, get new new_label based on actual segmentation
                 original_seg, track_df, new_label = get_ctc_output(original_seg, solution_graph, 't', 'label', loc)
                 _save_results(original_seg, track_df, out_res)
                 new_label += 1
                 resolved_since_last_eval += 1
 
-                # still had wrong edges, have big number of errors, been 10 edges since we last evaluated or we are at the end
-                if ((count_errors_handled > 0)\
-                    and ((total_errors <= 20) or (resolved_since_last_eval >= 25)))\
+                # if we've presented 25 incorrect edges since eval, we have a small number of overall errors, or we're at the end
+                if ((total_errors <= 20) or (resolved_since_last_eval >= 25))\
                     or (count_edges_presented >= len(ds_edges) - 1):
                     # re-evaluate LNK and BIO
                     res_dict = evaluate_sequence(out_res, gt_path[:-4], ['DET', 'TRA', 'LNK', 'BIO', 'CT', 'TF', 'CCA', 'BC'])
