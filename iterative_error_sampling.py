@@ -1,3 +1,4 @@
+import glob
 import os
 import numpy as np
 import pandas as pd
@@ -69,12 +70,35 @@ if __name__ == '__main__':
     #####################################################################################
     # path to csv generated using "compute_edge_sampling_dfs.py"
     all_ds_path = os.path.join(root_pth, 'solution_edges_datasets_with_FP_WS_FA_FE.csv')
+    bandit_rank_root = '/home/ddon0001/PhD/experiments/ucb_ranking_fixed_gamma/'
     out_root = '/home/ddon0001/PhD/experiments/error_sampling_ws_fa_fe'
-    feature_of_interest = 'feature_distance'
+    feature_of_interest = 'bandit_rank'
     ascending = False
+    use_bandit_rank = True
     #####################################################################################
 
-    all_ds = pd.read_csv(all_ds_path)
+    needed_cols = [
+        'ds_name',
+        'u',
+        'v',
+        'feature_distance',
+        'chosen_neighbour_rank',
+        'prop_diff',
+        'sensitivity_diff',
+        'solution_correct',
+        'solution_incorrect',
+        'error_type'
+    ]
+    if use_bandit_rank:
+        dfs = []
+        for ds_name in os.listdir(bandit_rank_root):
+            csv_pth = glob.glob(f'{bandit_rank_root}/{ds_name}/*.csv')
+            if len(csv_pth):
+                dfs.append(pd.read_csv(csv_pth[0]))
+        all_ds = pd.concat(dfs, ignore_index=True)
+        needed_cols.append('bandit_rank')
+    else:
+        all_ds = pd.read_csv(all_ds_path)
     ds_names = all_ds.ds_name.unique()
     for ds_name in ds_names:
         ds, seq = ds_name.split('_')
@@ -84,21 +108,11 @@ if __name__ == '__main__':
         if os.path.exists(out_edge_csv_path):
             print(f'{out_edge_csv_path} already exists, skipping...')
             continue
+        if 'H157' in ds_name:
+            print(f'Skipping {ds_name}...')
+            continue
 
-        # select edges and sort by relevant feature
-        ds_edges = all_ds[all_ds['ds_name'] == ds_name][[
-            'ds_name',
-            'u',
-            'v',
-            'feature_distance',
-            'chosen_neighbour_rank',
-            'prop_diff',
-            'sensitivity_diff',
-            'solution_correct',
-            'solution_incorrect',
-            'error_type'
-        ]]
-        # ds_edges = ds_edges.sort_values(by=feature_of_interest, ascending=ascending)
+        ds_edges = all_ds[all_ds['ds_name'] == ds_name][needed_cols]
         total_errors = ds_edges['solution_incorrect'].sum()
 
         # load required dataset info
@@ -156,10 +170,13 @@ if __name__ == '__main__':
         unpresented = set(ds_edges[ds_edges.presented_rank == -1].index)
 
         while len(unpresented):
-            if ascending == False:
-                row_idx = ds_edges[ds_edges.presented_rank == -1][feature_of_interest].idxmax()
+            if use_bandit_rank:
+                row_idx = ds_edges[ds_edges.presented_rank == -1]['bandit_rank'].idxmin()
             else:
-                row_idx = ds_edges[ds_edges.presented_rank == -1][feature_of_interest].idxmin()
+                if ascending == False:
+                    row_idx = ds_edges[ds_edges.presented_rank == -1][feature_of_interest].idxmax()
+                else:
+                    row_idx = ds_edges[ds_edges.presented_rank == -1][feature_of_interest].idxmin()
             row = ds_edges.loc[row_idx]
 
             is_correct = row.solution_correct
@@ -216,6 +233,8 @@ if __name__ == '__main__':
                                 'DET': -1.0,
                                 'presented_rank': -1,
                             }
+                            if use_bandit_rank:
+                                new_edge_info['bandit_rank'] = -1
                             ds_edges = pd.concat([ds_edges, pd.DataFrame(new_edge_info, index=[ds_edges.index.max() + 1])])
                         solution_graph.add_edge(sol_pred, v)
                         # this edge belongs to two different tracks
@@ -276,6 +295,8 @@ if __name__ == '__main__':
                                 'DET': -1.0,
                                 'presented_rank': -1,
                             }
+                            if use_bandit_rank:
+                                new_edge_info['bandit_rank'] = -1
                             ds_edges = pd.concat([ds_edges, pd.DataFrame(new_edge_info, index=[ds_edges.index.max() + 1])])
 
 
@@ -316,6 +337,8 @@ if __name__ == '__main__':
                                 'DET': -1.0,
                                 'presented_rank': -1,
                             }
+                            if use_bandit_rank:
+                                new_edge_info['bandit_rank'] = -1
                             ds_edges = pd.concat([ds_edges, pd.DataFrame(new_edge_info, index=[ds_edges.index.max() + 1])])
 
                 # save CTC output, get new new_label based on actual segmentation
