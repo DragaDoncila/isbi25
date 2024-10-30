@@ -72,9 +72,9 @@ if __name__ == '__main__':
     all_ds_path = os.path.join(root_pth, 'solution_edges_datasets_with_FP_WS_FA_FE.csv')
     bandit_rank_root = '/home/ddon0001/PhD/experiments/ucb_ranking_fixed_gamma/'
     out_root = '/home/ddon0001/PhD/experiments/error_sampling_ws_fa_fe'
-    feature_of_interest = 'bandit_rank'
-    ascending = False
-    use_bandit_rank = True
+    feature_of_interest = 'sensitivity_diff'
+    ascending = True
+    use_bandit_rank = False
     #####################################################################################
 
     needed_cols = [
